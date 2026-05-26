@@ -1,11 +1,13 @@
 import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
-import { Config } from "@/config/config"
-import { PermissionNext } from "@/permission/next"
-import { Session } from "@/session"
+import { AppRuntime } from "@/effect/app-runtime"
 import { errors } from "../../server/error"
 import { lazy } from "../../util/lazy"
+import { AllowEverythingPermission } from "./allow-everything"
+
+const allowEverything = (input: AllowEverythingPermission.Input) =>
+  AppRuntime.runPromise(AllowEverythingPermission.effect(input))
 
 export const PermissionKilocodeRoutes = lazy(() =>
   new Hono().post(
@@ -36,42 +38,7 @@ export const PermissionKilocodeRoutes = lazy(() =>
     ),
     async (c) => {
       const body = c.req.valid("json")
-      const rules: PermissionNext.Ruleset = [{ permission: "*", pattern: "*", action: "allow" }]
-
-      if (!body.enable) {
-        if (body.sessionID) {
-          const session = await Session.get(body.sessionID)
-          await Session.setPermission({
-            sessionID: body.sessionID,
-            permission: (session.permission ?? []).filter(
-              (rule) => !(rule.permission === "*" && rule.pattern === "*" && rule.action === "allow"),
-            ),
-          })
-          await PermissionNext.allowEverything({ enable: false, sessionID: body.sessionID })
-          return c.json(true)
-        }
-
-        await Config.updateGlobal({ permission: { "*": { "*": null } } }, { dispose: false })
-        await PermissionNext.allowEverything({ enable: false })
-        return c.json(true)
-      }
-
-      if (body.sessionID) {
-        const session = await Session.get(body.sessionID)
-        await Session.setPermission({
-          sessionID: body.sessionID,
-          permission: [...(session.permission ?? []), ...rules],
-        })
-      } else {
-        await Config.updateGlobal({ permission: PermissionNext.toConfig(rules) }, { dispose: false })
-      }
-
-      await PermissionNext.allowEverything({
-        enable: true,
-        requestID: body.requestID,
-        sessionID: body.sessionID,
-      })
-
+      await allowEverything(body)
       return c.json(true)
     },
   ),
